@@ -2952,8 +2952,6 @@ namespace AAXClasses
         [[maybe_unused]] auto numInputBuses  = plugin->getBusCount (true);
         [[maybe_unused]] auto numOutputBuses = plugin->getBusCount (false);
 
-        auto pluginNames = plugin->getAlternateDisplayNames();
-
         pluginNames.insert (0, JucePlugin_Name);
 
         pluginNames.removeDuplicates (false);
