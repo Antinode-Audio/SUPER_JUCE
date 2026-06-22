@@ -168,7 +168,57 @@ std::unique_ptr<ScopedMessageBoxInterface> ScopedMessageBoxInterface::create (co
                 config.cButtons = (UINT) buttonLabels.size();
 
                 int buttonIndex = 0;
-                TaskDialogIndirect (&config, &buttonIndex, nullptr, nullptr);
+
+                // TaskDialogIndirect lives only in the comctl32 v6 side-by-side assembly.
+                // Importing it statically makes plug-in DLLs fail to load in hosts that
+                // don't activate the Common-Controls v6 context ("The ordinal 345 could
+                // not be located in COMCTL32.dll" — e.g. OBS). VMProtect's import
+                // protection makes it worse by rebinding imports outside the manifest
+                // context. Resolve it dynamically and fall back to a plain MessageBox so
+                // the binary carries no v6-only import at all.
+                using TaskDialogIndirectFn = HRESULT (WINAPI*) (const TASKDIALOGCONFIG*, int*, int*, BOOL*);
+
+                static const auto taskDialogIndirect = []() -> TaskDialogIndirectFn
+                {
+                    if (auto* comctl = GetModuleHandleW (L"comctl32.dll"))
+                        return reinterpret_cast<TaskDialogIndirectFn> (GetProcAddress (comctl, "TaskDialogIndirect"));
+
+                    return nullptr;
+                }();
+
+                if (taskDialogIndirect != nullptr)
+                {
+                    taskDialogIndirect (&config, &buttonIndex, nullptr, nullptr);
+                    return buttonIndex;
+                }
+
+                // Fallback: classic MessageBox (no comctl32 v6 dependency).
+                const auto iconFlags = [&]() -> UINT
+                {
+                    switch (options.getIconType())
+                    {
+                        case MessageBoxIconType::WarningIcon:   return MB_ICONWARNING;
+                        case MessageBoxIconType::InfoIcon:      return MB_ICONINFORMATION;
+                        case MessageBoxIconType::QuestionIcon:  return MB_ICONQUESTION;
+                        case MessageBoxIconType::NoIcon:        break;
+                    }
+
+                    return 0;
+                }();
+
+                const auto numButtons = options.getNumButtons();
+                const UINT buttonFlags = numButtons >= 3 ? MB_YESNOCANCEL
+                                       : numButtons == 2 ? MB_OKCANCEL
+                                                         : MB_OK;
+
+                switch (MessageBoxW (parent, message.toWideCharPointer(), title.toWideCharPointer(), buttonFlags | iconFlags))
+                {
+                    case IDOK:
+                    case IDYES:    return 0;
+                    case IDNO:     return 1;
+                    case IDCANCEL: return numButtons >= 3 ? 2 : 1;
+                    default:       break;
+                }
 
                 return buttonIndex;
             };
