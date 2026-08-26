@@ -178,7 +178,19 @@ public:
     void swapBuffers()
     {
         auto now = Time::getMillisecondCounterHiRes();
-        [renderContext flushBuffer];
+
+        {
+            // The render thread must hold the CGL lock while flushing: AppKit updates the
+            // context's drawable on the main thread (NSViewGlobalFrameDidChangeNotification
+            // -> _surfaceNeedsUpdate -> -[NSOpenGLContext update]) under the same lock, and
+            // flushing concurrently with such an update dereferences a stale drawable
+            // (observed as swapBuffers crashes in hosts that reparent/resize plugin views,
+            // e.g. Cubase/Nuendo). See Apple QA1385.
+            Locker locker (*this);
+
+            if ([renderContext view] != nil)
+                [renderContext flushBuffer];
+        }
 
         if (const auto minSwapTime = minSwapTimeMs.get(); minSwapTime > 0)
         {
