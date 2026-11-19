@@ -2271,22 +2271,7 @@ private:
     OSStatus GetParameterList (AudioUnitScope inScope, AudioUnitParameterID* outParameterList, UInt32& outNumParameters) override
     {
         if (forceUseLegacyParamIDs || inScope != kAudioUnitScope_Global)
-        {
-            // Extended/Group scopes (inScope >= kNumScopes) make ausdk AUBase::GetScope throw
-            // AUException(kAudioUnitErr_InvalidScope). That C++ exception escapes the AU C-API
-            // dispatch (AUMethodGetPropertyInfo) and reaches std::terminate, crashing the host
-            // (reproduced via auval and REAPER's FX window). Convert it back to an OSStatus here
-            // so the host receives the error instead of being terminated.
-            try
-            {
-                return MusicDeviceBase::GetParameterList (inScope, outParameterList, outNumParameters);
-            }
-            catch (const ausdk::AUException& e)
-            {
-                outNumParameters = 0;
-                return e.mError;
-            }
-        }
+            return MusicDeviceBase::GetParameterList (inScope, outParameterList, outNumParameters);
 
         outNumParameters = (UInt32) juceParameters.size();
 
