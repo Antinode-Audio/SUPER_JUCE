@@ -1956,18 +1956,17 @@ OSStatus AUBase::GetParameterList(
 	AudioUnitScope inScope, AudioUnitParameterID* outParameterList, UInt32& outNumParameters)
 {
 	// GetScope throws AUException(kAudioUnitErr_InvalidScope) for extended/Group scopes
-	// (inScope >= kNumScopes). In optimized builds that exception could not unwind out of this
-	// frame to the AU C-API dispatch's catch, reaching std::terminate and crashing the host
-	// (reproduced via auval and REAPER's FX window). Catch it locally — GetScope is inlined here,
-	// so the landing pad is in-frame — and return the OSStatus per this method's contract.
-	const AUScope* scopePtr = nullptr;
-	try {
-		scopePtr = &GetScope(inScope);
-	} catch (const AUException& e) {
-		outNumParameters = 0;
-		return e.mError;
+	// (inScope >= kNumScopes with no extended scope). The AU C-API dispatch is supposed to catch
+	// that, but C++ exception unwinding is unreliable in this shipped binary — a local try/catch
+	// here does NOT catch it either and std::terminate aborts the host (auval OSStatus -10866,
+	// REAPER FX window). Likely the VMProtect whole-image pass corrupts the exception LSDA/unwind
+	// tables of non-virtualized code. So do NOT rely on catching: replicate GetScope's validity
+	// check and return the OSStatus for invalid scopes, calling GetScope only when it cannot throw.
+	outNumParameters = 0;
+	if (inScope >= kNumScopes && GetScopeExtended(inScope) == nullptr) {
+		return kAudioUnitErr_InvalidScope;
 	}
-	const auto& scope = *scopePtr;
+	const auto& scope = GetScope(inScope);
 	AUElement* elementWithMostParameters = nullptr;
 	UInt32 maxNumParams = 0;
 
