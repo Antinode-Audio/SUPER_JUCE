@@ -263,6 +263,18 @@ OSStatus AUBase::DispatchGetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScop
 	AudioUnitElement inElement, UInt32& outDataSize, bool& outWritable)
 {
 	OSStatus result = noErr;
+
+	// VMProtect zeroes this shipped binary's __unwind_info/__eh_frame (measured 69 KB + 132 KB
+	// -> 0), so C++ exception unwinding is dead for non-virtualized frames and the AU C-API
+	// dispatch's AUSDK_Catch can no longer catch GetScope's AUException(kAudioUnitErr_InvalidScope).
+	// A host probing an invalid scope (e.g. kAudioUnitProperty_ElementCount on scope 4 / Part while
+	// building the v3 parameterTree) would std::terminate and abort the host. Replicate GetScope's
+	// validity check up front and return the OSStatus instead of letting it throw. Same pattern as
+	// GetParameterList; full root-cause writeup in juce_pin.txt.
+	if (inScope >= kNumScopes && GetScopeExtended(inScope) == nullptr) {
+		return kAudioUnitErr_InvalidScope;
+	}
+
 	bool validateElement = true;
 
 	switch (inID) {
@@ -474,6 +486,13 @@ OSStatus AUBase::DispatchGetProperty(
 	// and ensures that the outData buffer is non-null and large enough.
 	OSStatus result = noErr;
 
+	// See DispatchGetPropertyInfo: VMProtect zeroes this binary's unwind tables, so GetScope's
+	// AUException(kAudioUnitErr_InvalidScope) cannot be caught and would std::terminate the host.
+	// Return the error up front instead of throwing (cf. GetParameterList; root cause juce_pin.txt).
+	if (inScope >= kNumScopes && GetScopeExtended(inScope) == nullptr) {
+		return kAudioUnitErr_InvalidScope;
+	}
+
 	switch (inID) {
 	case kAudioUnitProperty_StreamFormat:
 		*static_cast<AudioStreamBasicDescription*>(outData) = GetStreamFormat(inScope, inElement);
@@ -666,6 +685,13 @@ OSStatus AUBase::DispatchSetProperty(AudioUnitPropertyID inID, AudioUnitScope in
 	AudioUnitElement inElement, const void* inData, UInt32 inDataSize)
 {
 	OSStatus result = noErr;
+
+	// See DispatchGetPropertyInfo: VMProtect zeroes this binary's unwind tables, so GetScope's
+	// AUException(kAudioUnitErr_InvalidScope) cannot be caught and would std::terminate the host.
+	// Return the error up front instead of throwing (cf. GetParameterList; root cause juce_pin.txt).
+	if (inScope >= kNumScopes && GetScopeExtended(inScope) == nullptr) {
+		return kAudioUnitErr_InvalidScope;
+	}
 
 	switch (inID) {
 	case kAudioUnitProperty_MakeConnection: {
